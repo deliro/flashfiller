@@ -59,6 +59,35 @@ var inProgressStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#fdfdfd")).
 var passedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ff00")).Render
 var failedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Render
 
+func splitLines(s string, width int) string {
+	words := strings.Split(s, " ")
+	minLength := 0
+	for _, w := range words {
+		if len(w) > minLength {
+			minLength = len(w)
+		}
+	}
+
+	lines := make([]string, 0)
+	var b strings.Builder
+	for _, w := range words {
+		if b.Len() == 0 {
+			b.WriteString(w)
+		} else if b.Len()+len(w)+1 <= width {
+			b.WriteString(" ")
+			b.WriteString(w)
+		} else {
+			lines = append(lines, b.String())
+			b.Reset()
+			b.WriteString(w)
+		}
+	}
+	if b.Len() > 0 {
+		lines = append(lines, b.String())
+	}
+	return strings.Join(lines, "\n")
+}
+
 func getMd5(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -129,6 +158,7 @@ func (w *copyWatcher) Write(p []byte) (int, error) {
 }
 
 func copyFile(from, to string, ch chan fillerMsg) error {
+	time.Sleep(time.Millisecond * 200)
 	r, err := os.Open(from)
 	if err != nil {
 		return err
@@ -225,6 +255,7 @@ type model struct {
 	currentFiles           int
 	lastFiles              []*lastFileItem
 	failedMd5Number        int
+	width                  int
 }
 
 func newApp(sub chan fillerMsg, explanation string) model {
@@ -232,7 +263,7 @@ func newApp(sub chan fillerMsg, explanation string) model {
 		sub:                    sub,
 		currentState:           uiStateSearching,
 		start:                  time.Now(),
-		explanation:            explanation,
+		explanation:            splitLines(explanation, 50),
 		filesFound:             0,
 		filesMatch:             0,
 		spinner:                spinner.New(spinner.WithSpinner(spinner.Dot)),
@@ -248,6 +279,7 @@ func newApp(sub chan fillerMsg, explanation string) model {
 		currentFiles:           0,
 		lastFiles:              make([]*lastFileItem, 0, fileHistoryLines+1),
 		failedMd5Number:        0,
+		width:                  80,
 	}
 }
 
@@ -263,13 +295,16 @@ func activityBridge(ch chan fillerMsg) tea.Cmd {
 func (m model) Init() tea.Cmd {
 	return tea.Batch(activityBridge(m.sub), m.spinner.Tick)
 }
-
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.totalProgress.Width = msg.Width - 6
+		m.currentProgress.Width = msg.Width - 6
 	case done:
 		return m, tea.Quit
 	case totalsFound:
@@ -451,38 +486,37 @@ func main() {
 		parts := make([]string, 0)
 		parts = append(parts, fmt.Sprintf("Ищем файлы %s в %s", patterns, from))
 		parts = append(parts, fmt.Sprintf("пишем %s в %s", formatSize(left), to))
-		hashCheck := "проверяя контрольные суммы при записи"
+		hashCheck := "проверяя md5"
 		if noCheckMd5 {
 			hashCheck = "не " + hashCheck
 		}
 		parts = append(parts, hashCheck)
 		if dropThreshold != -1 {
-			parts = append(parts, fmt.Sprintf("пропуская файлы меньше %s", formatSize(dropThreshold)))
+			parts = append(parts, fmt.Sprintf("без файлов меньше %s", formatSize(dropThreshold)))
 		}
 		if noLives {
-			parts = append(parts, "пропуская Live файлы")
+			parts = append(parts, "без live файлов")
 		}
 		return strings.Join(parts, ", ")
 	}
 
-	log.Println(_makeExplanation())
-	doneCh := make(chan struct{})
-	go func() {
-		_matchesLimits := func(path string) bool {
-			patterned := matchesPatterns(patterns, noLives, path)
-			if !patterned {
+	_matchesLimits := func(path string) bool {
+		patterned := matchesPatterns(patterns, noLives, path)
+		if !patterned {
+			return false
+		}
+		if dropThreshold != -1 {
+			info, err := os.Stat(path)
+			if err != nil {
 				return false
 			}
-			if dropThreshold != -1 {
-				info, err := os.Stat(path)
-				if err != nil {
-					return false
-				}
-				return info.Size() >= dropThreshold
-			}
-			return true
+			return info.Size() >= dropThreshold
 		}
+		return true
+	}
 
+	log.Println(_makeExplanation())
+	go func() {
 		files := make([]string, 0)
 		err = filepath.WalkDir(from, func(path string, d fs.DirEntry, err error) error {
 			if !d.IsDir() {
@@ -589,7 +623,6 @@ func main() {
 		if copyError && noGUI {
 			os.Exit(1)
 		}
-		doneCh <- struct{}{}
 	}()
 	opts := make([]tea.ProgramOption, 0)
 	if noGUI {
@@ -599,5 +632,4 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	<-doneCh
 }

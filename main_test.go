@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func assert(exp bool, t *testing.T) {
 	if !exp {
@@ -20,4 +23,8 @@ func Test_parseSize(t *testing.T) {
 	assert(Must(parseSize("12.12M")) == 12708741, t)
 	assert(Must(parseSize("123456")) == 123456, t)
 	assert(Must(parseSize("4k")) == 4096, t)
+}
+
+func Test_splitLines(t *testing.T) {
+	fmt.Println(splitLines("hello world foo bar", 11))
 }
