@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -26,5 +25,5 @@ func Test_parseSize(t *testing.T) {
 }
 
 func Test_splitLines(t *testing.T) {
-	fmt.Println(splitLines("hello world foo bar", 11))
+	assert(splitLines("hello world foo bar", 11) == "hello world\nfoo bar", t)
 }

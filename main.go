@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/charmbracelet/bubbles/progress"
@@ -32,6 +33,18 @@ var dropLess = ""
 var dropThreshold = int64(-1)
 
 type fileStatus int
+
+func (f fileStatus) Style(s string) string {
+	switch f {
+	case inProgress:
+		return inProgressStyle("> " + s)
+	case md5passed:
+		return passedStyle("  " + s)
+	case md5failed:
+		return failedStyle("  " + s)
+	}
+	return s
+}
 
 const (
 	md5passed fileStatus = iota
@@ -217,18 +230,6 @@ func matchesPatterns(patterns []string, noLives bool, path string) bool {
 	}
 
 	return false
-}
-
-func (f fileStatus) Style(s string) string {
-	switch f {
-	case inProgress:
-		return inProgressStyle("> " + s)
-	case md5passed:
-		return passedStyle("  " + s)
-	case md5failed:
-		return failedStyle("  " + s)
-	}
-	return s
 }
 
 type model struct {
@@ -449,6 +450,7 @@ type searchFileFound string
 type searchFileMatches struct{}
 
 var noGUI bool
+var noRename bool
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -457,6 +459,7 @@ func main() {
 	flag.BoolVar(&noLives, "nolive", false, "не включать в список live выступления (если в имени файла или родительской папке содержится 'live') [0/1]. По умолчанию: 0")
 	flag.StringVar(&dropLess, "drop", "", "не включать в список файлы, размер которых меньше параметра (например: -drop=1M или -drop=900K). По умолчанию включаются все")
 	flag.BoolVar(&noGUI, "nogui", false, "не отображать GUI, вместо этого писать логи")
+	flag.BoolVar(&noRename, "norename", false, "не переименовывать файлы")
 	flag.Parse()
 	args := flag.Args()
 	if flag.NArg() != 3 {
@@ -496,6 +499,9 @@ func main() {
 		}
 		if noLives {
 			parts = append(parts, "без live файлов")
+		}
+		if noRename {
+			parts = append(parts, "не переименовывая файлы")
 		}
 		return strings.Join(parts, ", ")
 	}
@@ -568,7 +574,6 @@ func main() {
 		}
 		log.Println("будет записано файлов:", len(toWrite), "на", formatSize(toWriteBytesCount))
 
-		counter := 0
 		parentCreated := false
 
 		copyError := false
@@ -586,10 +591,9 @@ func main() {
 				currentFileBytes:  info.Size(),
 				path:              path,
 			}
-			ext := filepath.Ext(path)
-			name := fmt.Sprintf("%010d%s", counter, ext)
-			counter++
-			newPath := filepath.Join(to, name)
+
+			newPath := getDestinationFilepath(to, filename, path)
+
 			log.Println("Пишем", path, "->", newPath)
 			if !parentCreated {
 				parentDir := filepath.Dir(newPath)
@@ -632,4 +636,37 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+}
+
+var counter = 0
+
+func fileExists(path string) bool {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return true
+}
+
+func getDestinationFilepath(to string, filename string, path string) string {
+	var newPath string
+	if noRename {
+		existingCounter := 0
+		for {
+			var prefix string
+			if existingCounter != 0 {
+				prefix = fmt.Sprintf("(%d) ", existingCounter)
+			}
+			newPath = filepath.Join(to, fmt.Sprintf("%s%s", prefix, filename))
+			if fileExists(newPath) {
+				existingCounter++
+			} else {
+				break
+			}
+		}
+	} else {
+		newFilename := fmt.Sprintf("%010d%s", counter, filepath.Ext(path))
+		newPath = filepath.Join(to, newFilename)
+		counter++
+	}
+	return newPath
 }
