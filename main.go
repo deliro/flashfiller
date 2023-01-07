@@ -171,7 +171,6 @@ func (w *copyWatcher) Write(p []byte) (int, error) {
 }
 
 func copyFile(from, to string, ch chan fillerMsg) error {
-	time.Sleep(time.Millisecond * 200)
 	r, err := os.Open(from)
 	if err != nil {
 		return err
