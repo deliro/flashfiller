@@ -18,7 +18,7 @@ macOS / Linux:
 
 Windows:
 
-`./flashfiller 15G "D:\Music\My Best Collection" "E\"`
+`./flashfiller.exe 15G "D:\Music\My Best Collection" "E\"`
 
 ## Конфигурация
 
